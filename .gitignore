@@ -1,0 +1,13 @@
+# nix build/run artifacts
+result
+run-gtnh/
+
+# direnv if you use it
+.direnv/
+.envrc
+
+# editor
+.vscode/
+.idea/
+*.swp
+
