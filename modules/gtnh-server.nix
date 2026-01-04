@@ -15,6 +15,7 @@ let
   # A small wrapper that:
   # - syncs pack -> dataDir (excluding world/)
   # - ensures scripts are executable
+  # - ensures logs/config dirs exist and are writable by the service user
   # - chooses a start script (explicit or autodetect)
   startWrapper = pkgs.writeShellScript "gtnh-start" ''
     set -euo pipefail
@@ -35,14 +36,18 @@ let
       --exclude 'server.properties' \
       "$PACK_DIR"/ "$DATA_DIR"/
 
+    # Ensure runtime directories exist (log4j + mods write here)
+    mkdir -p "$DATA_DIR/logs" "$DATA_DIR/config"
+    chmod -R u+rwX "$DATA_DIR" 2>/dev/null || true
+
     # Ensure shell scripts are executable (some zips preserve perms, some don't)
     chmod +x "$DATA_DIR"/*.sh 2>/dev/null || true
     chmod +x "$DATA_DIR"/scripts/*.sh 2>/dev/null || true
 
     # Write EULA and server.properties declaratively
     cat > "$DATA_DIR/eula.txt" <<EOF
-    eula=${if cfg.eula then "true" else "false"}
-    EOF
+eula=${if cfg.eula then "true" else "false"}
+EOF
 
     install -m 0644 ${serverPropertiesFile} "$DATA_DIR/server.properties"
 
@@ -106,7 +111,7 @@ in
     startScript = lib.mkOption {
       type = lib.types.str;
       default = "";
-      example = "startserver-java17.sh";
+      example = "startserver-java9.sh";
       description = ''
         Name of the start script inside dataDir. If empty, the service will try to autodetect
         startserver*.sh.
@@ -143,7 +148,16 @@ in
 
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 gtnh gtnh - -"
+      "d ${cfg.dataDir}/logs 0750 gtnh gtnh - -"
+      "d ${cfg.dataDir}/config 0750 gtnh gtnh - -"
     ];
+
+    # Robustly fix ownership at activation time (handles pre-existing root-owned files)
+    system.activationScripts.gtnh-permissions.text = ''
+      ${pkgs.coreutils}/bin/mkdir -p ${cfg.dataDir} ${cfg.dataDir}/logs ${cfg.dataDir}/config
+      ${pkgs.coreutils}/bin/chown -R gtnh:gtnh ${cfg.dataDir}
+      ${pkgs.coreutils}/bin/chmod 0750 ${cfg.dataDir}
+    '';
 
     networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
 
@@ -159,7 +173,7 @@ in
         Group = "gtnh";
         WorkingDirectory = cfg.dataDir;
 
-        # Run wrapper (stages files + starts pack script)
+        # Run wrapper (stages files + writes config + starts pack script)
         ExecStart = "${startWrapper}";
 
         Restart = "on-failure";
