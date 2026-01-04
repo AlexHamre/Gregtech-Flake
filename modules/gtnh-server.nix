@@ -2,11 +2,16 @@
 let
   cfg = config.services.gtnh;
 
-  # Convert an attrset to server.properties format
+  # Convert an attrset to server.properties format (Minecraft expects booleans as "true"/"false")
   mkPropertiesFile = props:
+    let
+      render = v:
+        if lib.isBool v then (if v then "true" else "false")
+        else toString v;
+    in
     pkgs.writeText "server.properties" (
       lib.concatStringsSep "\n"
-        (lib.mapAttrsToList (k: v: "${k}=${toString v}") props)
+        (lib.mapAttrsToList (k: v: "${k}=${render v}") props)
       + "\n"
     );
 
@@ -16,6 +21,7 @@ let
   # - syncs pack -> dataDir (excluding world/)
   # - ensures scripts are executable
   # - ensures logs/config dirs exist and are writable by the service user
+  # - writes eula.txt and server.properties declaratively
   # - chooses a start script (explicit or autodetect)
   startWrapper = pkgs.writeShellScript "gtnh-start" ''
     set -euo pipefail
